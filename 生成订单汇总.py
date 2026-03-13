@@ -1,17 +1,26 @@
 """
 从 Sheet A（订单明细）自动生成 Sheet B（按产品线×国家汇总）。
-带完整 GUI 界面。
+带完整 GUI 界面，支持自动更新。
 """
 
 import sys
 import os
 import threading
+import json
+import subprocess
 from collections import defaultdict
+from urllib.request import urlopen, Request
+from urllib.error import URLError
 import openpyxl
 from openpyxl.styles import Font, Alignment
 from openpyxl.utils import get_column_letter
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
+
+VERSION = "1.0.0"
+GITHUB_REPO = "luojunlin1223/Vibexlsx"
+UPDATE_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+EXE_ASSET_NAME = "订单汇总生成器.exe"
 
 # ========== 固定配置 ==========
 
@@ -201,27 +210,135 @@ def write_sheet_b(wb, agg):
     ws.column_dimensions[get_column_letter(TOTAL_COL)].width = 16
 
 
+# ========== 自动更新 ==========
+
+def _parse_version(v):
+    """将版本字符串 'v1.2.3' 或 '1.2.3' 转为可比较的元组。"""
+    v = v.lstrip("vV")
+    parts = []
+    for p in v.split("."):
+        try:
+            parts.append(int(p))
+        except ValueError:
+            parts.append(0)
+    return tuple(parts)
+
+
+def check_update():
+    """
+    检查 GitHub 最新 release，返回 (has_update, latest_version, download_url, release_notes)。
+    如果检查失败返回 (False, None, None, None)。
+    """
+    try:
+        req = Request(UPDATE_URL, headers={"Accept": "application/vnd.github.v3+json"})
+        with urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+
+        latest_tag = data.get("tag_name", "")
+        release_notes = data.get("body", "") or ""
+
+        if not latest_tag:
+            return False, None, None, None
+
+        if _parse_version(latest_tag) <= _parse_version(VERSION):
+            return False, latest_tag, None, release_notes
+
+        # 查找 exe 资产下载链接
+        download_url = None
+        for asset in data.get("assets", []):
+            if asset.get("name") == EXE_ASSET_NAME:
+                download_url = asset.get("browser_download_url")
+                break
+
+        return True, latest_tag, download_url, release_notes
+    except Exception:
+        return False, None, None, None
+
+
+def download_and_replace(download_url, progress_callback=None):
+    """
+    下载新版 exe 并替换当前文件。
+    progress_callback(downloaded_mb, total_mb) 用于报告进度。
+    返回 (success, message)。
+    """
+    if getattr(sys, 'frozen', False):
+        current_exe = sys.executable
+    else:
+        return False, "仅打包后的 exe 支持自动更新。"
+
+    old_exe = current_exe + ".old"
+
+    try:
+        # 下载新版本到临时文件
+        tmp_exe = current_exe + ".tmp"
+        req = Request(download_url)
+        with urlopen(req, timeout=60) as resp:
+            total = int(resp.headers.get("Content-Length", 0))
+            total_mb = total / (1024 * 1024) if total else 0
+            downloaded = 0
+            with open(tmp_exe, "wb") as f:
+                while True:
+                    chunk = resp.read(256 * 1024)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    if progress_callback:
+                        progress_callback(downloaded / (1024 * 1024), total_mb)
+
+        # Windows 允许重命名正在运行的 exe
+        if os.path.exists(old_exe):
+            os.remove(old_exe)
+        os.rename(current_exe, old_exe)
+        os.rename(tmp_exe, current_exe)
+
+        return True, current_exe
+
+    except Exception as e:
+        # 回滚
+        if os.path.exists(old_exe) and not os.path.exists(current_exe):
+            os.rename(old_exe, current_exe)
+        tmp_exe = current_exe + ".tmp"
+        if os.path.exists(tmp_exe):
+            os.remove(tmp_exe)
+        return False, f"更新失败：{e}"
+
+
+# ========== GUI ==========
+
 class App:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("订单汇总生成器")
-        self.root.geometry("700x520")
+        self.root.title(f"订单汇总生成器 v{VERSION}")
+        self.root.geometry("700x560")
         self.root.resizable(False, False)
 
         self.input_path = tk.StringVar()
         self.output_path = tk.StringVar()
 
         self._build_ui()
+        # 启动后台检查更新
+        threading.Thread(target=self._check_update_background, daemon=True).start()
 
     def _build_ui(self):
         root = self.root
 
-        # ---------- 标题 ----------
-        title_label = tk.Label(root, text="本月已收到订单汇总", font=("Microsoft YaHei", 16, "bold"))
-        title_label.pack(pady=(18, 4))
+        # ---------- 顶部栏：标题 + 更新按钮 ----------
+        top_frame = tk.Frame(root)
+        top_frame.pack(fill="x", padx=20, pady=(12, 0))
+
+        title_label = tk.Label(top_frame, text="本月已收到订单汇总", font=("Microsoft YaHei", 16, "bold"))
+        title_label.pack(side="left", padx=(0, 10))
+
+        self.btn_update = tk.Button(top_frame, text="检查更新", font=("Microsoft YaHei", 9),
+                                     command=self._on_check_update, width=10)
+        self.btn_update.pack(side="right")
+
+        self.version_label = tk.Label(top_frame, text=f"v{VERSION}", font=("Microsoft YaHei", 9), fg="#999999")
+        self.version_label.pack(side="right", padx=(0, 8))
 
         subtitle = tk.Label(root, text="从 Sheet A 自动生成 Sheet B 汇总表", font=("Microsoft YaHei", 10), fg="#666666")
-        subtitle.pack(pady=(0, 14))
+        subtitle.pack(pady=(2, 10))
 
         # ---------- 输入文件 ----------
         frame_in = tk.LabelFrame(root, text="输入文件", font=("Microsoft YaHei", 10), padx=12, pady=8)
@@ -247,7 +364,7 @@ class App:
         self.btn_run = tk.Button(root, text="生 成", font=("Microsoft YaHei", 12, "bold"),
                                  bg="#4CAF50", fg="white", activebackground="#45a049",
                                  width=14, height=1, command=self._run)
-        self.btn_run.pack(pady=12)
+        self.btn_run.pack(pady=10)
 
         # ---------- 日志区域 ----------
         frame_log = tk.LabelFrame(root, text="处理日志", font=("Microsoft YaHei", 10), padx=12, pady=8)
@@ -278,7 +395,6 @@ class App:
         )
         if path:
             self.input_path.set(path)
-            # 自动设置输出路径
             base, ext = os.path.splitext(path)
             self.output_path.set(f"{base}_output{ext}")
 
@@ -309,7 +425,6 @@ class App:
         thread.start()
 
     def _schedule(self, func, *args):
-        """在主线程中安全地执行 UI 操作。"""
         self.root.after(0, func, *args)
 
     def _reset_button(self):
@@ -360,6 +475,83 @@ class App:
 
         finally:
             self._schedule(self._reset_button)
+
+    # ---------- 更新相关 ----------
+
+    def _check_update_background(self):
+        """启动时后台静默检查更新。"""
+        has_update, latest, download_url, notes = check_update()
+        if has_update and download_url:
+            self._schedule(self._prompt_update, latest, download_url, notes)
+
+    def _on_check_update(self):
+        """用户手动点击检查更新。"""
+        self.btn_update.configure(state="disabled", text="检查中...")
+        threading.Thread(target=self._check_update_manual, daemon=True).start()
+
+    def _check_update_manual(self):
+        has_update, latest, download_url, notes = check_update()
+        if has_update and download_url:
+            self._schedule(self._prompt_update, latest, download_url, notes)
+        elif has_update and not download_url:
+            self._schedule(messagebox.showinfo, "更新", f"发现新版本 {latest}，但未找到可下载的 exe 文件。")
+        else:
+            self._schedule(messagebox.showinfo, "更新", f"当前已是最新版本 v{VERSION}")
+        self._schedule(self._reset_update_button)
+
+    def _reset_update_button(self):
+        self.btn_update.configure(state="normal", text="检查更新")
+
+    def _prompt_update(self, latest, download_url, notes):
+        """弹窗询问用户是否更新。"""
+        msg = f"发现新版本 {latest}（当前 v{VERSION}）\n"
+        if notes:
+            # 只显示前200字符的更新说明
+            short_notes = notes[:200] + ("..." if len(notes) > 200 else "")
+            msg += f"\n更新说明：\n{short_notes}\n"
+        msg += "\n是否立即更新？"
+
+        if messagebox.askyesno("发现新版本", msg):
+            self.btn_update.configure(state="disabled", text="更新中...")
+            self._log_clear()
+            self._log(f"正在下载新版本 {latest} ...")
+            threading.Thread(target=self._do_update, args=(download_url,), daemon=True).start()
+
+    def _do_update(self, download_url):
+        """在子线程中执行下载和替换。"""
+        def on_progress(downloaded_mb, total_mb):
+            if total_mb > 0:
+                self._schedule(self._log_update_progress, downloaded_mb, total_mb)
+
+        success, result = download_and_replace(download_url, progress_callback=on_progress)
+
+        if success:
+            self._schedule(self._log, "")
+            self._schedule(self._log, "更新完成！即将重启应用...")
+            self._schedule(self._restart_app, result)
+        else:
+            self._schedule(self._log, f"\n{result}")
+            self._schedule(messagebox.showerror, "更新失败", result)
+            self._schedule(self._reset_update_button)
+
+    def _log_update_progress(self, downloaded_mb, total_mb):
+        """更新日志区的下载进度（覆盖最后一行）。"""
+        self.log_text.configure(state="normal")
+        # 删除最后一行进度（如果有的话）
+        last_line_start = self.log_text.index("end-2l linestart")
+        last_line_text = self.log_text.get(last_line_start, "end-1c")
+        if last_line_text.startswith("  下载进度"):
+            self.log_text.delete(last_line_start, "end-1c")
+        progress_text = f"  下载进度: {downloaded_mb:.1f} / {total_mb:.1f} MB ({downloaded_mb/total_mb*100:.0f}%)"
+        self.log_text.insert("end", progress_text + "\n")
+        self.log_text.see("end")
+        self.log_text.configure(state="disabled")
+
+    def _restart_app(self, exe_path):
+        """重启应用。"""
+        # 启动新进程
+        subprocess.Popen([exe_path])
+        self.root.destroy()
 
     def run(self):
         self.root.mainloop()

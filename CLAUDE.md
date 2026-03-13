@@ -45,10 +45,31 @@
 - 对 W 列值做类型检查，非数值（公式字符串等）跳过并记录警告
 - GUI 耗时操作在子线程中执行（`threading.Thread`），通过 `root.after()` 回调更新 UI，避免界面阻塞
 
-## 打包命令
+## 自动更新机制
 
-```bash
-python -m PyInstaller --onefile --windowed --name "订单汇总生成器" 生成订单汇总.py
-```
+- 基于 GitHub Releases，应用启动时后台检查 `https://api.github.com/repos/luojunlin1223/Vibexlsx/releases/latest`
+- 比较本地 `VERSION` 与远程 `tag_name`，有新版则弹窗提示
+- 更新流程：下载新 exe → 重命名旧 exe 为 `.old` → 放入新 exe → 自动重启
+- Release 中的 exe 资产名称必须为 `订单汇总生成器.exe`
 
-输出在 `dist/订单汇总生成器.exe`，打包后删除 `build/` 和 `.spec` 文件。
+## 发版流程
+
+1. 修改 `生成订单汇总.py` 中的 `VERSION`（如 `"1.1.0"` → `"1.2.0"`）
+2. 打包 exe：
+   ```bash
+   python -m PyInstaller --onefile --windowed --name "订单汇总生成器" 生成订单汇总.py
+   cp dist/订单汇总生成器.exe .
+   rm -rf build/ dist/ 订单汇总生成器.spec
+   ```
+3. Commit & push：
+   ```bash
+   git add 生成订单汇总.py
+   git commit -m "Bump version to vX.Y.Z"
+   git push
+   ```
+4. 创建 GitHub Release 并上传 exe：
+   ```bash
+   gh release create vX.Y.Z 订单汇总生成器.exe --title "vX.Y.Z" --notes "更新说明"
+   ```
+
+注意：`gh` 需要 `repo` scope 权限（`gh auth refresh -s repo`）。

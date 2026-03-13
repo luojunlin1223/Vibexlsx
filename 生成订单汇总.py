@@ -17,7 +17,7 @@ from openpyxl.utils import get_column_letter
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 GITHUB_REPO = "luojunlin1223/Vibexlsx"
 UPDATE_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 EXE_ASSET_NAME = "订单汇总生成器.exe"

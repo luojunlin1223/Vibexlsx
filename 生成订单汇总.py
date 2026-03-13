@@ -17,7 +17,7 @@ from openpyxl.utils import get_column_letter
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 GITHUB_REPO = "luojunlin1223/Vibexlsx"
 UPDATE_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 EXE_ASSET_NAME = "订单汇总生成器.exe"
@@ -243,10 +243,11 @@ def check_update():
         if _parse_version(latest_tag) <= _parse_version(VERSION):
             return False, latest_tag, None, release_notes
 
-        # 查找 exe 资产下载链接
+        # 查找 exe 资产下载链接（匹配 .exe 后缀，兼容中文文件名被重命名的情况）
         download_url = None
         for asset in data.get("assets", []):
-            if asset.get("name") == EXE_ASSET_NAME:
+            name = asset.get("name", "")
+            if name.endswith(".exe"):
                 download_url = asset.get("browser_download_url")
                 break
 

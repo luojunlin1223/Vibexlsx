@@ -167,7 +167,7 @@ def write_sheet_b(wb, agg):
 
     for (product, col), value in agg.items():
         row_num = PRODUCT_ROW_MAP[product]
-        cell = ws.cell(row=row_num, column=col, value=value)
+        cell = ws.cell(row=row_num, column=col, value=value / 1000)
         cell.number_format = NUM_FMT
         cell.alignment = align_right
 

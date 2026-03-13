@@ -16,8 +16,9 @@ from openpyxl.styles import Font, Alignment
 from openpyxl.utils import get_column_letter
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
+import windnd
 
-VERSION = "1.3.0"
+VERSION = "1.4.0"
 GITHUB_REPO = "luojunlin1223/Vibexlsx"
 UPDATE_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 EXE_ASSET_NAME = "订单汇总生成器.exe"
@@ -342,7 +343,7 @@ class App:
         subtitle.pack(pady=(2, 10))
 
         # ---------- 输入文件 ----------
-        frame_in = tk.LabelFrame(root, text="输入文件", font=("Microsoft YaHei", 10), padx=12, pady=8)
+        frame_in = tk.LabelFrame(root, text="输入文件（支持拖放）", font=("Microsoft YaHei", 10), padx=12, pady=8)
         frame_in.pack(fill="x", padx=20, pady=(0, 8))
 
         entry_in = tk.Entry(frame_in, textvariable=self.input_path, font=("Microsoft YaHei", 9), state="readonly")
@@ -351,8 +352,12 @@ class App:
         btn_browse_in = tk.Button(frame_in, text="浏览...", font=("Microsoft YaHei", 9), command=self._browse_input, width=8)
         btn_browse_in.pack(side="right", padx=(8, 0))
 
+        # 输入区域拖放
+        windnd.hook_dropfiles(frame_in, func=self._on_drop_input)
+        windnd.hook_dropfiles(entry_in, func=self._on_drop_input)
+
         # ---------- 输出文件 ----------
-        frame_out = tk.LabelFrame(root, text="输出文件", font=("Microsoft YaHei", 10), padx=12, pady=8)
+        frame_out = tk.LabelFrame(root, text="输出文件（支持拖放）", font=("Microsoft YaHei", 10), padx=12, pady=8)
         frame_out.pack(fill="x", padx=20, pady=(0, 8))
 
         entry_out = tk.Entry(frame_out, textvariable=self.output_path, font=("Microsoft YaHei", 9), state="readonly")
@@ -360,6 +365,10 @@ class App:
 
         btn_browse_out = tk.Button(frame_out, text="浏览...", font=("Microsoft YaHei", 9), command=self._browse_output, width=8)
         btn_browse_out.pack(side="right", padx=(8, 0))
+
+        # 输出区域拖放
+        windnd.hook_dropfiles(frame_out, func=self._on_drop_output)
+        windnd.hook_dropfiles(entry_out, func=self._on_drop_output)
 
         # ---------- 生成按钮 ----------
         self.btn_run = tk.Button(root, text="生 成", font=("Microsoft YaHei", 12, "bold"),
@@ -388,6 +397,33 @@ class App:
         self.log_text.configure(state="normal")
         self.log_text.delete("1.0", "end")
         self.log_text.configure(state="disabled")
+
+    def _on_drop_input(self, files):
+        """拖放文件到输入区域。"""
+        path = files[0].decode("utf-8") if isinstance(files[0], bytes) else files[0]
+        if path.lower().endswith(".xlsx"):
+            self.input_path.set(path)
+            base, ext = os.path.splitext(path)
+            self.output_path.set(f"{base}_output{ext}")
+        else:
+            messagebox.showwarning("提示", "请拖入 .xlsx 文件！")
+
+    def _on_drop_output(self, files):
+        """拖放文件/文件夹到输出区域。"""
+        path = files[0].decode("utf-8") if isinstance(files[0], bytes) else files[0]
+        if os.path.isdir(path):
+            # 拖入文件夹：在该文件夹下生成输出文件
+            input_file = self.input_path.get()
+            if input_file:
+                basename = os.path.basename(input_file)
+                base, ext = os.path.splitext(basename)
+                self.output_path.set(os.path.join(path, f"{base}_output{ext}"))
+            else:
+                self.output_path.set(os.path.join(path, "output.xlsx"))
+        elif path.lower().endswith(".xlsx"):
+            self.output_path.set(path)
+        else:
+            messagebox.showwarning("提示", "请拖入 .xlsx 文件或文件夹！")
 
     def _browse_input(self):
         path = filedialog.askopenfilename(

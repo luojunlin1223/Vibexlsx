@@ -18,7 +18,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import windnd
 
-VERSION = "1.5.0"
+VERSION = "1.5.1"
 GITHUB_REPO = "luojunlin1223/Vibexlsx"
 UPDATE_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 EXE_ASSET_NAME = "订单汇总生成器.exe"
@@ -540,8 +540,10 @@ class App:
             self._schedule(self._prompt_update, latest, download_url, notes)
         elif has_update and not download_url:
             self._schedule(messagebox.showinfo, "更新", f"发现新版本 {latest}，但未找到可下载的 exe 文件。")
-        else:
+        elif latest is not None:
             self._schedule(messagebox.showinfo, "更新", f"当前已是最新版本 v{VERSION}")
+        else:
+            self._schedule(messagebox.showwarning, "更新", "检查更新失败，请检查网络连接后重试。")
         self._schedule(self._reset_update_button)
 
     def _reset_update_button(self):

@@ -18,7 +18,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import windnd
 
-VERSION = "1.4.0"
+VERSION = "1.5.0"
 GITHUB_REPO = "luojunlin1223/Vibexlsx"
 UPDATE_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 EXE_ASSET_NAME = "订单汇总生成器.exe"
@@ -96,14 +96,19 @@ COL_HEADERS = [
 COL_TO_COUNTRY = {v: k for k, v in COUNTRY_COL_MAP.items()}
 COL_TO_COUNTRY[CIS_COL] = "CIS Countries"
 
+# 大小写不敏感的查找字典
+_COUNTRY_COL_MAP_LOWER = {k.lower(): v for k, v in COUNTRY_COL_MAP.items()}
+_CIS_COUNTRIES_LOWER = {c.lower() for c in CIS_COUNTRIES}
+_PRODUCT_ROW_MAP_LOWER = {k.lower(): (k, v) for k, v in PRODUCT_ROW_MAP.items()}
+
 
 def get_country_col(country_name):
     if not country_name:
         return None
-    country_name = country_name.strip()
-    if country_name in COUNTRY_COL_MAP:
-        return COUNTRY_COL_MAP[country_name]
-    if country_name in CIS_COUNTRIES:
+    key = country_name.strip().lower()
+    if key in _COUNTRY_COL_MAP_LOWER:
+        return _COUNTRY_COL_MAP_LOWER[key]
+    if key in _CIS_COUNTRIES_LOWER:
         return CIS_COL
     return COUNTRY_COL_MAP["Other"]
 
@@ -129,7 +134,7 @@ def read_sheet_a(ws):
 
         row_count += 1
 
-        if q5 and str(q5).strip() == "Parts":
+        if q5 and str(q5).strip().lower() == "parts":
             product = "Service"
         else:
             product = str(product).strip()
@@ -138,11 +143,14 @@ def read_sheet_a(ws):
         if col is None:
             continue
 
-        if product not in PRODUCT_ROW_MAP:
+        product_lower = product.lower()
+        if product_lower not in _PRODUCT_ROW_MAP_LOWER:
             warnings.append(f"未知产品线 '{product}'，已跳过")
             continue
 
-        agg[(product, col)] += value
+        # 使用映射表中的标准名称
+        canonical_name, _ = _PRODUCT_ROW_MAP_LOWER[product_lower]
+        agg[(canonical_name, col)] += value
 
     return agg, warnings, row_count
 
